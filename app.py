@@ -4,101 +4,57 @@ import plotly.express as px
 
 st.set_page_config(page_title="📊 Screener Analyzer", layout="wide")
 
-st.title("📊 Screener.in Company Fundamentals Analyzer")
+st.title("📊 Dynamic Screener.in Fundamentals Analyzer")
 
 st.markdown("""
-Upload the Excel file you exported from **Screener.in**  
-and get instant visualizations of key financials, ratios, and balance sheet trends.
+Upload your **Screener.in Excel export** and interactively explore financial data.  
+You can select any metric from Profit & Loss, Balance Sheet, or Cash Flow and see its trend.
 """)
 
 # Upload Excel
 uploaded_file = st.file_uploader("Upload Screener.in Excel File", type=["xlsx"])
 
-if uploaded_file:
-    # Load all sheets
+def clean_sheet(xls, sheet_name):
+    """Reads Screener.in sheet and reshapes for plotting"""
     try:
-        data = pd.ExcelFile(uploaded_file)
-        st.success("✅ File uploaded successfully!")
+        df = pd.read_excel(xls, sheet_name=sheet_name, header=2)
+        df = df.dropna(how="all")  # drop empty rows
+        df = df.loc[:, ~df.columns.duplicated()]  # remove duplicate cols
+        df = df.set_index(df.columns[0])  # Narration as index
+        df = df.T  # transpose -> Years as rows
+        df.index.name = "Year"
+        df = df.apply(pd.to_numeric, errors="coerce")
+        return df
     except Exception as e:
-        st.error(f"Error reading file: {e}")
-        st.stop()
+        st.warning(f"⚠️ Could not process {sheet_name}: {e}")
+        return None
 
-    # Sidebar - available sheets
-    st.sidebar.header("📑 Sheets Available")
-    sheets = data.sheet_names
-    selected_sheet = st.sidebar.selectbox("Select sheet to view raw data", sheets)
-    df_preview = pd.read_excel(data, sheet_name=selected_sheet)
-    st.sidebar.dataframe(df_preview.head())
+if uploaded_file:
+    xls = pd.ExcelFile(uploaded_file)
+    st.success("✅ File uploaded successfully!")
 
-    # ---- Profit & Loss ----
-    if "Profit & Loss" in sheets:
-        pl = pd.read_excel(data, sheet_name="Profit & Loss")
-        st.header("💰 Profit & Loss Overview")
+    available_sheets = [s for s in ["Profit & Loss", "Balance Sheet", "Cash Flow", "Quarters"] if s in xls.sheet_names]
+    selected_sheet = st.sidebar.radio("📑 Select a sheet", available_sheets)
 
-        try:
-            year_col = pl.columns[0]
-            sales_col = pl.columns[1]
-            profit_col = pl.columns[2]
+    df = clean_sheet(xls, selected_sheet)
 
-            fig = px.line(pl, x=year_col, y=[sales_col, profit_col],
-                          markers=True, title="Sales vs Profit Over Time")
+    if df is not None:
+        # Sidebar metric selector
+        metrics = df.columns.tolist()
+        selected_metrics = st.sidebar.multiselect("📊 Select metrics to plot", metrics, default=metrics[:2])
+
+        st.subheader(f"📈 {selected_sheet} Trends")
+
+        if selected_metrics:
+            fig = px.line(df, x=df.index, y=selected_metrics, markers=True,
+                          title=f"{selected_sheet} - Selected Metrics")
             st.plotly_chart(fig, use_container_width=True)
-        except Exception:
-            st.warning("⚠️ Could not plot Profit & Loss sheet (check column names).")
+        else:
+            st.info("👆 Please select at least one metric to plot.")
 
-    # ---- Balance Sheet ----
-    if "Balance Sheet" in sheets:
-        bs = pd.read_excel(data, sheet_name="Balance Sheet")
-        st.header("📊 Balance Sheet Overview")
-
-        try:
-            year_col = bs.columns[0]
-            equity_col = bs.columns[1]
-            debt_col = bs.columns[2]
-
-            fig2 = px.bar(bs, x=year_col, y=[equity_col, debt_col],
-                          barmode="group", title="Equity vs Debt Over Time")
-            st.plotly_chart(fig2, use_container_width=True)
-        except Exception:
-            st.warning("⚠️ Could not plot Balance Sheet sheet (check column names).")
-
-    # ---- Ratios ----
-    if "Ratios" in sheets:
-        ratios = pd.read_excel(data, sheet_name="Ratios")
-        st.header("📈 Key Financial Ratios")
-
-        try:
-            year_col = ratios.columns[0]
-            roe_col = ratios.columns[1]
-            roce_col = ratios.columns[2]
-            pe_col = ratios.columns[3]
-
-            fig3 = px.line(ratios, x=year_col,
-                           y=[roe_col, roce_col, pe_col],
-                           markers=True, title="ROE, ROCE & PE Trend")
-            st.plotly_chart(fig3, use_container_width=True)
-        except Exception:
-            st.warning("⚠️ Could not plot Ratios sheet (check column names).")
-
-    # ---- Cash Flow ----
-    if "Cash Flow" in sheets:
-        cf = pd.read_excel(data, sheet_name="Cash Flow")
-        st.header("💵 Cash Flow Overview")
-
-        try:
-            year_col = cf.columns[0]
-            op_col = cf.columns[1]
-            inv_col = cf.columns[2]
-            fin_col = cf.columns[3]
-
-            fig4 = px.bar(cf, x=year_col,
-                          y=[op_col, inv_col, fin_col],
-                          barmode="group", title="Cash Flow Breakdown")
-            st.plotly_chart(fig4, use_container_width=True)
-        except Exception:
-            st.warning("⚠️ Could not plot Cash Flow sheet (check column names).")
-
-    st.success("✅ Analysis Complete! Explore charts above.")
-
+        # Show raw table
+        with st.expander("🔍 Show raw cleaned data"):
+            st.dataframe(df)
 else:
     st.info("👆 Please upload a Screener.in Excel file to begin.")
+
